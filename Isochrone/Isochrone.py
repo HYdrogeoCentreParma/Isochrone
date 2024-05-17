@@ -18,6 +18,7 @@ Based on:
 """
 
 __version__ = '1.0.0'
+# Update 2024 05 15 by Thomas.Reimann@tu-dresden.de to make it work with the current releases of FloPy et al.
 
 import sys
 import os
@@ -112,8 +113,8 @@ class SteadyFlow :
         # (NLAY,NROW,NCOL)
         deltaROW = ml.dis.delr.array 
         deltaCOL = ml.dis.delc.array
-        THICKNESS = ml.dis.thickness.array[LAYER, :, :] 
-
+      # THICKNESS = ml.dis.thickness.array[LAYER, :, :] #TR: 2024 05 07 THIS WAS NOT WORKING ANYMORE
+        THICKNESS = ml.dis.top - ml.dis.botm[LAYER-1]   #TR: 2024 05 07 Substitute
         # TOP       = ml.dis.top.array       # (NROW,NCOL)
         # BOTTOM    = ml.dis.bottom.array    # (NLAY,NROW,NCOL)
         xP = 0.0 + np.cumsum(deltaROW)
@@ -205,7 +206,7 @@ class SteadyFlow :
         """
         NROW, NCOL = self.FLOWx.shape
 
-        print(porosity)
+        print('Porosity: ', porosity)
         if (type(porosity) == str) :
             if (os.path.exists(porosity) == True) :
                 datas = np.loadtxt(porosity)
@@ -316,10 +317,10 @@ class SteadyFlow :
     #   in a controlled way
     #      
         
-    #  Having points that are separated at most of "delta" time the length of the isochrone
+    #   Having points that are separated at most of "delta" time the length of the isochrone
     #  
-    #  This is the main function that generate the isochrone for a single well.
-    #  ComputeIsochroneWells call this function for any required well.  
+    #   This is the main function that generate the isochrone for a single well.
+    #   ComputeIsochroneWells call this function for any required well.  
     def ComputeIsochroneWells(self, delta=0.05, wells = [], time=60 ,radius=0.0, MAXSTEPS=10, DP=0.0) :
         """Generate isochrone for the time t for each given well using the main
         function ComputeIsochroneWellMAXdelta.
@@ -342,9 +343,9 @@ class SteadyFlow :
             wells = range(self.WELLs['N'])
         return [self.ComputeIsochroneWellMAXdelta(delta, well, time, radius, MAXSTEPS, DP) for well in wells]
     
-    # Main routine used to compute the ISOCHRONEs
-    # use: self.ComputeIsochroneWell    (first GUESS)
-    #      self.ComputeIsochroneORIGIN  (Generate new points)
+    #   Main routine used to compute the ISOCHRONEs
+    #   use: self.ComputeIsochroneWell    (first GUESS)
+    #        self.ComputeIsochroneORIGIN  (Generate new points)
     def ComputeIsochroneWellMAXdelta(self, delta=0.05, well=0, time=60, radius=0.0, MAXSTEPS=10, DP=0) :
         """Generate isochrone for the given time of the selected well
 
@@ -378,7 +379,6 @@ class SteadyFlow :
         dP = np.sqrt(np.diff(Xs)**2 + np.diff(Ys)**2)
         REFINE = np.where(dP > MAXdP, 1, 0)
         nREFINE = int(np.sum(REFINE))
-
         # print nREFINE
         STEPS = 0
         while nREFINE > 1 and STEPS < MAXSTEPS :
@@ -495,7 +495,7 @@ class SteadyFlow :
         for idx in range(niso) :
             npoints[idx] = len(ISOs[idx][0])
         TOTpoints = np.cumsum(npoints)
-        print(str(npoints) + " " + str(TOTpoints))
+        #print(str(npoints) + " " + str(TOTpoints))
         datas = np.zeros( (TOTpoints[-1], 4) )
         Px = Origin[0] + M[0, 0] * ISOs[0][0] + M[0,1] * ISOs[0][1]
         Py = Origin[1] + M[1, 0] * ISOs[0][0] + M[1, 1] * ISOs[0][1]
@@ -521,7 +521,7 @@ class SteadyFlow :
         Alpha -- rotation angle of the model (defalt 0.0, will use the model one) 
 
         """
-
+        # !TR: TODO - This routine needs some fix
         if ('shapefile' in sys.modules) == False :
             print("Can't produce shapefile. Please install shapefile")
             return
@@ -536,7 +536,7 @@ class SteadyFlow :
                           [np.sin(alpha), np.cos(alpha)]])
 
         niso = len(ISOs)
-        w = shapefile.Writer()
+        w = shapefile.Writer(fname, shapefile.POLYLINE)
         w.field('TIME', 'C', '8')
         w.field('AREA', 'C', '4')
         w.field('DESCRIPTION', 'C', '68')
@@ -548,7 +548,8 @@ class SteadyFlow :
             listP = [ [Px[i], Py[i]] for i in range(len(Px))]
             STRtime = ('%8.2f' % time)
             STRwell = ('%4d' % well)
-            w.poly(parts=[listP], shapeType = shapefile.POLYLINE)
+            #w.poly(parts=[listP], shapeType = shapefile.POLYLINE)
+            w.poly([listP], shapeType = shapefile.POLYLINE)
             w.record(STRtime,STRwell,'Isochrone at time ' + STRtime + ' (d) of capture area ' + STRwell)
         w.save(fname)
 
@@ -565,7 +566,7 @@ class SteadyFlow :
         mSIZEy = self.bbox[3]-self.bbox[2]
         ASPECT_RATIO = mSIZEy/mSIZEx
         SIZEx = 6.0    
-        SIZEy = (1.0/150) * np.int(SIZEx*ASPECT_RATIO*150)
+        SIZEy = (1.0/150) * int(SIZEx*ASPECT_RATIO*150)
 
         fig = plt.figure(figsize=(SIZEx, SIZEy))
         ax = fig.add_axes([0.16,0.18,0.80,0.80])
@@ -585,10 +586,22 @@ class SteadyFlow :
         ax -- axis to use to use (default the one associate with the flow)
  
         """
-
+        # 2024 05 15 Updated to address plotting requirement of sorted data
+        
         if  (type(ax) != matplotlib.axes._axes.Axes ) :
             ax = self.ax
-        ax.streamplot(self.X, self.Y, self.Vx, self.Vy, density=density)
+        axis=0
+        indexes = np.argsort(self.Y,axis=axis)
+        self.Xplot  = np.take_along_axis(self.X, indexes,axis=axis)
+        self.Yplot  = np.take_along_axis(self.Y, indexes,axis=axis)
+        self.Vxplot = np.take_along_axis(self.Vx,indexes,axis=axis)
+        self.Vyplot = np.take_along_axis(self.Vy,indexes,axis=axis)
+        #self.Y[indexes]
+        #self.X = self.X[indexes]
+        #self.Vx = self.Vx[indexes]
+        #self.Vy = self.Vy[indexes]
+        #self.Y = self.Y[::-1]
+        ax.streamplot(self.Xplot, self.Yplot, self.Vxplot, self.Vyplot, density=density)
 
     def PlotWells(self, ax = '') :
         """ Plot the position of the well on the SteadyFlow model
